@@ -32,7 +32,7 @@ Only use the public anon/publishable key in this browser app. Never put a Supaba
 
 ## Publish to GitHub
 
-This project folder is not currently a Git repository, and Git is not installed in the current workspace. For a beginner-friendly push, install GitHub Desktop, choose **File → Add local repository**, select this project folder, then publish it to the GitHub repository you created. If your online repository already contains files, clone it first and copy the project files into that clone before publishing. Do not share your GitHub password or access token in chat.
+For a beginner-friendly push, open this project folder in GitHub Desktop using **File → Add local repository**, sign in if prompted, and choose **Push origin** to send your commits to GitHub. If starting with an online repository that already contains files, clone it first and copy the project files into that clone. Never put a GitHub password or access token in project files or chat.
 
 To deploy with GitHub Pages after publishing, open the repository's **Settings → Pages**, choose **Deploy from a branch**, select the `main` branch and `/ (root)`, then save. The site uses relative file paths and is compatible with a repository subpath.
 
