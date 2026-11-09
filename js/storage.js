@@ -1,10 +1,9 @@
-// Keep a local copy, and sync it to Supabase when cloud settings are present.
+// Save SkillMap data in IndexedDB and keep a LocalStorage fallback.
 const SkillMapStorage = {
   key: "skillmapStudentData",
-  table: "student_analyses",
-  cloudClient: null,
-  userId: null,
-  cloudStatus: "local",
+  databaseName: "SkillMapDatabase",
+  storeName: "studentData",
+  database: null,
 
   getData() {
     const savedData = localStorage.getItem(this.key);
@@ -28,13 +27,81 @@ const SkillMapStorage = {
     };
   },
 
-  saveData(data) {
-    localStorage.setItem(this.key, JSON.stringify(data));
-    return this.saveToCloud(data).catch((error) => {
-      this.cloudStatus = "error";
-      console.error("Cloud sync failed; the local copy is saved:", error.message);
-      return false;
+  openDatabase() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.databaseName, 1);
+
+      request.onupgradeneeded = function () {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(SkillMapStorage.storeName)) {
+          database.createObjectStore(SkillMapStorage.storeName, { keyPath: "id" });
+        }
+      };
+
+      request.onsuccess = function () {
+        resolve(request.result);
+      };
+
+      request.onerror = function () {
+        reject(request.error || new Error("Could not open the browser database."));
+      };
     });
+  },
+
+  readRecord() {
+    return new Promise((resolve, reject) => {
+      const transaction = this.database.transaction(this.storeName, "readonly");
+      const request = transaction.objectStore(this.storeName).get("student");
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error("Could not read the browser database."));
+    });
+  },
+
+  writeRecord(data) {
+    if (!this.database) return Promise.resolve(false);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.database.transaction(this.storeName, "readwrite");
+      transaction.objectStore(this.storeName).put({ id: "student", data });
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error || new Error("Could not save to the browser database."));
+      transaction.onabort = () => reject(transaction.error || new Error("The browser database save was cancelled."));
+    });
+  },
+
+  async initialize() {
+    if (!window.indexedDB) {
+      console.warn("IndexedDB is unavailable; SkillMap will use LocalStorage.");
+      return false;
+    }
+
+    try {
+      this.database = await this.openDatabase();
+      const savedRecord = await this.readRecord();
+
+      if (savedRecord && savedRecord.data) {
+        localStorage.setItem(this.key, JSON.stringify(savedRecord.data));
+      } else {
+        const localData = this.getData();
+        const hasSavedData = Boolean(localData.profile || localData.careerId || Object.keys(localData.currentSkills).length);
+        if (hasSavedData) await this.writeRecord(localData);
+      }
+      return true;
+    } catch (error) {
+      this.database = null;
+      console.error("IndexedDB is unavailable; SkillMap will use LocalStorage:", error.message);
+      return false;
+    }
+  },
+
+  async saveData(data) {
+    localStorage.setItem(this.key, JSON.stringify(data));
+    try {
+      return await this.writeRecord(data);
+    } catch (error) {
+      console.error("The local copy is saved, but IndexedDB could not be updated:", error.message);
+      return false;
+    }
   },
 
   async updateData(key, value) {
@@ -44,83 +111,19 @@ const SkillMapStorage = {
     return data;
   },
 
-  async saveToCloud(data) {
-    if (!this.cloudClient || !this.userId || !data.profile || !data.careerId) return false;
-
-    const { error } = await this.cloudClient.from(this.table).upsert({
-      user_id: this.userId,
-      profile: data.profile,
-      career_id: data.careerId,
-      current_skills: data.currentSkills,
-      completed_skills: data.completedSkills,
-      learning_skills: data.learningSkills,
-      updated_at: new Date().toISOString()
-    }, { onConflict: "user_id" });
-
-    if (error) {
-      this.cloudStatus = "error";
-      console.error("Could not sync SkillMap data:", error.message);
-      return false;
-    }
-    this.cloudStatus = "connected";
-    return true;
-  },
-
-  async initialize() {
-    const config = window.SkillMapCloudConfig || {};
-    if (!config.url || !config.publishableKey || !window.supabase) return;
-
-    this.cloudClient = window.supabase.createClient(config.url, config.publishableKey);
-    try {
-      let { data, error } = await this.cloudClient.auth.getSession();
-      if (error) throw error;
-      if (!data.session) {
-        ({ data, error } = await this.cloudClient.auth.signInAnonymously());
-        if (error) throw error;
-      }
-      this.userId = data.session?.user?.id || data.user?.id;
-      if (!this.userId) throw new Error("Could not start an anonymous student session.");
-
-      const { data: savedRow, error: loadError } = await this.cloudClient
-        .from(this.table)
-        .select("profile, career_id, current_skills, completed_skills, learning_skills")
-        .eq("user_id", this.userId)
-        .maybeSingle();
-      if (loadError) throw loadError;
-
-      const localData = this.getData();
-      const hasLocalData = Boolean(localData.profile || localData.careerId || Object.keys(localData.currentSkills).length);
-      if (savedRow && !hasLocalData) {
-        localStorage.setItem(this.key, JSON.stringify({
-          ...this.emptyData(),
-          profile: savedRow.profile,
-          careerId: savedRow.career_id,
-          currentSkills: savedRow.current_skills || {},
-          completedSkills: savedRow.completed_skills || [],
-          learningSkills: savedRow.learning_skills || []
-        }));
-      } else if (hasLocalData) {
-        const saved = await this.saveToCloud(localData);
-        if (!saved) throw new Error("Could not sync the local record to Supabase.");
-      }
-      this.cloudStatus = "connected";
-    } catch (error) {
-      this.cloudStatus = "error";
-      console.error("Supabase is unavailable; SkillMap will use local storage:", error.message);
-    }
-  },
-
   async reset() {
+    localStorage.removeItem(this.key);
+    if (!this.database) return;
+
     try {
-      if (this.cloudClient && this.userId) {
-        const { error } = await this.cloudClient.from(this.table).delete().eq("user_id", this.userId);
-        if (error) console.error("Could not clear the cloud copy:", error.message);
-        await this.cloudClient.auth.signOut();
-      }
+      await new Promise((resolve, reject) => {
+        const transaction = this.database.transaction(this.storeName, "readwrite");
+        transaction.objectStore(this.storeName).delete("student");
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error || new Error("Could not reset the browser database."));
+      });
     } catch (error) {
-      console.error("Could not clear the cloud copy:", error.message);
-    } finally {
-      localStorage.removeItem(this.key);
+      console.error("Could not clear IndexedDB:", error.message);
     }
   }
 };

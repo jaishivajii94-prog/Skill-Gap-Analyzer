@@ -1,6 +1,6 @@
 # SkillMap – Student Skill Gap Analyzer
 
-SkillMap helps a student compare their current technical skills with the skills expected for a career they want to explore. It is a static website built with HTML, CSS, and beginner-friendly JavaScript. It works with LocalStorage by default and can optionally sync records to Supabase. There is no login screen or AI feature.
+SkillMap helps a student compare their current technical skills with the skills expected for a career they want to explore. It is a static website built with HTML, CSS, and beginner-friendly JavaScript. It stores data in the browser's IndexedDB database and keeps a LocalStorage fallback. There is no login screen, cloud service, or AI feature.
 
 ## Run the project
 
@@ -18,17 +18,7 @@ The chart on the results page uses Chart.js from a CDN, so that chart needs an i
 4. Review the skill map, then open recommendations and mark activities as in progress or complete.
 5. View the dashboard or print the student report. Use **Reset data** in the top navigation to start over.
 
-Profile, ratings, and learning progress are always saved in the browser's LocalStorage under `skillmapStudentData`. Without Supabase configuration, no information leaves the browser. With Supabase enabled, the app uses an anonymous session and row-level security so each session can access only its own analysis. Clearing browser data also clears that anonymous session, so it cannot be used to recover the account. The Reset data button deletes the current cloud row when connected.
-
-## Optional Supabase database
-
-1. Create a Supabase project.
-2. In Authentication settings, enable anonymous sign-ins. SkillMap does not show a login screen; Supabase uses an anonymous session behind the scenes to protect each student's row.
-3. Open the Supabase SQL Editor and run `supabase/schema.sql`. It creates the `student_analyses` table and row-level security policies.
-4. In Supabase project API settings, copy the Project URL and the public anon/publishable key into `url` and `publishableKey` in `js/supabase-config.js`.
-5. Reload SkillMap and complete an assessment. LocalStorage is updated first; a configured Supabase project then syncs the same profile, ratings, and progress.
-
-Only use the public anon/publishable key in this browser app. Never put a Supabase `service_role` key, database password, or other secret in HTML or JavaScript. The public key is safe to publish because the SQL enables row-level security and requires each row's ID to match the signed-in anonymous user. Keep real student data out of a public class demonstration unless your team and instructor agree on the privacy handling.
+Profile, ratings, and learning progress are stored in the browser's IndexedDB database under `SkillMapDatabase`. Data stays in the same browser and device; it is not shared across devices. The app also keeps a LocalStorage copy so it can migrate existing data and continue working if IndexedDB is unavailable. Use **Reset data** to clear both copies. Clearing browser site data also removes the database.
 
 ## Publish to GitHub
 
@@ -56,9 +46,7 @@ The readiness result follows the requested formula and is rounded to a whole per
 - `report.html` – printable student report.
 - `css/style.css` and `css/responsive.css` – shared design and mobile layouts.
 - `data/careers.js` – five careers, their target levels, and learning resources.
-- `js/storage.js` – LocalStorage plus optional Supabase sync and anonymous sessions.
-- `js/supabase-config.js` – public Supabase project URL and publishable key.
-- `supabase/schema.sql` – database table and row-level security policies.
+- `js/storage.js` – IndexedDB setup, LocalStorage migration, and fallback.
 - `js/analyzer.js` – calculate skill gaps, readiness, and learning progress.
 - `js/recommendations.js` – turn a gap into a suggested next activity.
 - `js/app.js` – shared navigation, career previews, and small page helpers.
@@ -66,6 +54,6 @@ The readiness result follows the requested formula and is rounded to a whole per
 
 ## A simple way to explain the code
 
-The pages collect or display information. `storage.js` saves it. `careers.js` holds the target skill levels. `analyzer.js` compares the student's ratings with those targets. The page scripts use those shared pieces to show recommendations, progress, and the report. This keeps the calculations in one place and the page behavior easy to follow.
+The pages collect or display information. `storage.js` saves it in IndexedDB and maintains a LocalStorage fallback. `careers.js` holds the target skill levels. `analyzer.js` compares the student's ratings with those targets. The page scripts use those shared pieces to show recommendations, progress, and the report. This keeps the calculations in one place and the page behavior easy to follow.
 
 For a three-person presentation, one person can explain the HTML/CSS and responsive layout, one can explain the career data and assessment flow, and one can explain the calculations, LocalStorage, and progress/report pages. All three should be comfortable describing the end-to-end student flow.
